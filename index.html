@@ -30,9 +30,6 @@
   #stage {
     position: fixed;
     inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     background:
       radial-gradient(ellipse at 30% 50%, #1a0040 0%, transparent 60%),
       radial-gradient(ellipse at 70% 50%, #400018 0%, transparent 60%),
@@ -40,12 +37,11 @@
   }
   canvas {
     display: block;
-    max-width: 100%;
-    max-height: 100%;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
     background: transparent;
-    box-shadow:
-      0 0 80px rgba(160, 80, 255, 0.25),
-      0 0 40px rgba(0, 240, 255, 0.15);
     image-rendering: auto;
   }
   #rotate-notice {
@@ -75,7 +71,7 @@
     0%, 100% { transform: rotate(0deg); }
     50% { transform: rotate(90deg); }
   }
-  @media (orientation: portrait) and (max-height: 600px) {
+  @media (orientation: portrait) {
     #rotate-notice { display: flex; }
   }
 </style>
@@ -110,14 +106,10 @@ const dist2 = (x1, y1, x2, y2) => { const dx = x2 - x1, dy = y2 - y1; return dx*
 // Responsive sizing
 // -----------------------------------------------------------------------------
 function resize() {
-  const sw = window.innerWidth;
-  const sh = window.innerHeight;
-  const scale = Math.min(sw / W, sh / H);
-  canvas.style.width = (W * scale) + 'px';
-  canvas.style.height = (H * scale) + 'px';
+  // CSS fills the viewport; no JS sizing needed — toCanvas() handles coord mapping.
 }
 window.addEventListener('resize', resize);
-window.addEventListener('orientationchange', () => setTimeout(resize, 100));
+window.addEventListener('orientationchange', () => setTimeout(resize, 150));
 resize();
 
 // -----------------------------------------------------------------------------
@@ -131,7 +123,8 @@ const input = {
 };
 
 const JOY_RADIUS = 90;
-const FIRE_BTN = { x: W - 130, y: H - 130, r: 90 };
+const JOY_HINT = { x: 160, y: H - 140 };  // static hint position bottom-left
+const FIRE_BTN = { x: W - 110, y: H - 110, r: 80 };
 
 function toCanvas(clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
@@ -145,25 +138,27 @@ function pointerStart(id, clientX, clientY) {
   const p = toCanvas(clientX, clientY);
   input.anyTapPending = true;
   input.anyTapAt = performance.now();
-  // Fire button takes priority on the right side
-  const dFire = Math.hypot(p.x - FIRE_BTN.x, p.y - FIRE_BTN.y);
-  if (dFire < FIRE_BTN.r * 1.4 || (p.x > W * 0.55 && p.y > H * 0.45)) {
+
+  // Only register flight controls during active play
+  if (game.state !== STATE.PLAY) return;
+
+  if (p.x < W * 0.5) {
+    // Left half → joystick (any touch, any vertical position)
+    if (!input.joy.active) {
+      input.joy.active = true;
+      input.joy.id = id;
+      input.joy.cx = p.x;
+      input.joy.cy = p.y;
+      input.joy.dx = 0;
+      input.joy.dy = 0;
+      input.joy.mag = 0;
+    }
+  } else {
+    // Right half → fire
     if (!input.fire.active) {
       input.fire.active = true;
       input.fire.id = id;
-      input.fire.fx = p.x; input.fire.fy = p.y;
-      return;
     }
-  }
-  // Joystick on left half
-  if (!input.joy.active && p.x < W * 0.55) {
-    input.joy.active = true;
-    input.joy.id = id;
-    input.joy.cx = p.x;
-    input.joy.cy = p.y;
-    input.joy.dx = 0;
-    input.joy.dy = 0;
-    input.joy.mag = 0;
   }
 }
 
@@ -1267,27 +1262,45 @@ function drawRift() {
 // Touch controls overlay
 // -----------------------------------------------------------------------------
 function drawControls() {
-  // Joystick
+  // Static joystick hint ring — always visible, faint, so player knows where to press
+  ctx.globalAlpha = 0.18;
+  ctx.strokeStyle = '#00f0ff';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  ctx.arc(JOY_HINT.x, JOY_HINT.y, JOY_RADIUS, 0, TAU);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+
+  // Active joystick
   if (input.joy.active) {
-    ctx.globalAlpha = 0.4;
-    ctx.strokeStyle = '#ffffff';
+    // Outer ring at origin
+    ctx.globalAlpha = 0.45;
+    ctx.strokeStyle = '#00f0ff';
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.arc(input.joy.cx, input.joy.cy, JOY_RADIUS, 0, TAU);
     ctx.stroke();
-    ctx.fillStyle = 'rgba(0, 240, 255, 0.5)';
+    // Thumb nub
+    ctx.fillStyle = 'rgba(0, 240, 255, 0.55)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(
       input.joy.cx + input.joy.dx * JOY_RADIUS,
       input.joy.cy + input.joy.dy * JOY_RADIUS,
-      32, 0, TAU
+      34, 0, TAU
     );
     ctx.fill();
+    ctx.stroke();
     ctx.globalAlpha = 1;
   }
+
   // Fire button
-  ctx.globalAlpha = input.fire.active ? 0.6 : 0.3;
-  ctx.fillStyle = input.fire.active ? '#ff60c0' : 'rgba(255, 100, 200, 0.4)';
+  const fireAlpha = input.fire.active ? 0.75 : 0.38;
+  ctx.globalAlpha = fireAlpha;
+  ctx.fillStyle = input.fire.active ? 'rgba(255, 80, 180, 0.7)' : 'rgba(255, 100, 200, 0.3)';
   ctx.strokeStyle = '#ff80d0';
   ctx.lineWidth = 3;
   ctx.beginPath();
@@ -1297,10 +1310,13 @@ function drawControls() {
 
   ctx.globalAlpha = 0.9;
   ctx.fillStyle = '#fff';
-  ctx.font = 'bold 22px -apple-system, system-ui, sans-serif';
+  ctx.font = 'bold 24px -apple-system, system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  ctx.shadowBlur = input.fire.active ? 16 : 0;
+  ctx.shadowColor = '#ff80d0';
   ctx.fillText('FIRE', FIRE_BTN.x, FIRE_BTN.y);
+  ctx.shadowBlur = 0;
   ctx.globalAlpha = 1;
   ctx.textBaseline = 'alphabetic';
 }
