@@ -470,8 +470,8 @@ function updatePlayer(dt) {
     if (kb) { dx = kb.dx; dy = kb.dy; mag = kb.mag; }
   }
 
-  const ACC = 1800;
-  const MAX = 460;
+  const ACC = 2400;
+  const MAX = 600;
   const DRAG = Math.pow(0.86, dt * 60);
 
   player.vx += dx * ACC * dt;
