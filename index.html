@@ -693,6 +693,10 @@ function damageBlock(blk, dmg) {
     if (player.energy === player.energyMax) {
       pushPopup(120, H / 2 - 60, 'CANNON READY', 60);
     }
+    if (shield.blocks.every(b => !b.alive)) {
+      player.energy = player.energyMax;
+      pushPopup(120, H / 2 - 60, 'CANNON READY', 60);
+    }
   } else {
     emitSpark(blk.x, blk.y, 320);
   }
