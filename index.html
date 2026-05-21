@@ -97,6 +97,10 @@ const ctx = canvas.getContext('2d');
 
 const TAU = Math.PI * 2;
 const rand = (a, b) => a + Math.random() * (b - a);
+
+const playerHaloGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 40);
+playerHaloGradient.addColorStop(0, 'rgba(0, 240, 255, 0.6)');
+playerHaloGradient.addColorStop(1, 'rgba(0, 240, 255, 0)');
 const randi = (a, b) => Math.floor(rand(a, b));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -342,27 +346,28 @@ function emitSpark(x, y, hue) {
 }
 
 function updateParticles(dt) {
-  for (let i = particles.length - 1; i >= 0; i--) {
+  let alive = 0;
+  for (let i = 0; i < particles.length; i++) {
     const p = particles[i];
     p.t += dt;
-    if (p.t >= p.life) { particles.splice(i, 1); continue; }
+    if (p.t >= p.life) continue;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
     p.vx *= p.drag;
     p.vy *= p.drag;
+    particles[alive++] = p;
   }
+  particles.length = alive;
 }
 
 function drawParticles() {
   ctx.globalCompositeOperation = 'lighter';
+  ctx.shadowBlur = 14;
   for (const p of particles) {
     const k = 1 - p.t / p.life;
     ctx.globalAlpha = k;
     const sz = p.size * (0.5 + k * 0.5);
-    if (p.glow) {
-      ctx.shadowBlur = 14;
-      ctx.shadowColor = `hsl(${p.hue}, 100%, 65%)`;
-    }
+    ctx.shadowColor = `hsl(${p.hue}, 100%, 65%)`;
     ctx.fillStyle = `hsl(${p.hue}, 100%, ${60 + k * 30}%)`;
     ctx.beginPath();
     ctx.arc(p.x, p.y, sz, 0, TAU);
@@ -542,10 +547,7 @@ function drawPlayer() {
 
   // Glow halo
   ctx.globalCompositeOperation = 'lighter';
-  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 40);
-  g.addColorStop(0, 'rgba(0, 240, 255, 0.6)');
-  g.addColorStop(1, 'rgba(0, 240, 255, 0)');
-  ctx.fillStyle = g;
+  ctx.fillStyle = playerHaloGradient;
   ctx.beginPath();
   ctx.arc(0, 0, 40, 0, TAU);
   ctx.fill();
@@ -720,21 +722,15 @@ function updateShield(dt) {
 
 function drawShield() {
   ctx.globalCompositeOperation = 'lighter';
+  ctx.shadowBlur = 22;
+  ctx.lineWidth = 2;
   for (const blk of shield.blocks) {
     if (!blk.alive) continue;
     const pulse = 0.85 + Math.sin(blk.phase) * 0.15;
     const hue = 310 + Math.sin(blk.phase * 0.5) * 10 + (blk.hitT > 0 ? 40 : 0);
     const r = blk.r * pulse;
-    // glow
-    const g = ctx.createRadialGradient(blk.x, blk.y, 0, blk.x, blk.y, r * 1.6);
-    g.addColorStop(0, `hsla(${hue}, 100%, 70%, 0.7)`);
-    g.addColorStop(0.6, `hsla(${hue}, 100%, 50%, 0.25)`);
-    g.addColorStop(1, 'transparent');
-    ctx.fillStyle = g;
-    ctx.fillRect(blk.x - r * 2, blk.y - r * 2, r * 4, r * 4);
-    // hex
+    ctx.shadowColor = `hsl(${hue}, 100%, 70%)`;
     ctx.strokeStyle = `hsl(${hue}, 100%, 80%)`;
-    ctx.lineWidth = 2;
     ctx.fillStyle = `hsla(${hue}, 90%, 35%, 0.8)`;
     ctx.beginPath();
     for (let i = 0; i < 6; i++) {
@@ -748,6 +744,7 @@ function drawShield() {
     ctx.fill();
     ctx.stroke();
   }
+  ctx.shadowBlur = 0;
   ctx.globalCompositeOperation = 'source-over';
 }
 
