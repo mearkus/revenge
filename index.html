@@ -472,7 +472,7 @@ function updatePlayer(dt) {
 
   const ACC = 1800;
   const MAX = 460;
-  const DRAG = 0.86;
+  const DRAG = Math.pow(0.86, dt * 60);
 
   player.vx += dx * ACC * dt;
   player.vy += dy * ACC * dt;
