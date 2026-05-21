@@ -362,18 +362,15 @@ function updateParticles(dt) {
 
 function drawParticles() {
   ctx.globalCompositeOperation = 'lighter';
-  ctx.shadowBlur = 14;
   for (const p of particles) {
     const k = 1 - p.t / p.life;
     ctx.globalAlpha = k;
     const sz = p.size * (0.5 + k * 0.5);
-    ctx.shadowColor = `hsl(${p.hue}, 100%, 65%)`;
     ctx.fillStyle = `hsl(${p.hue}, 100%, ${60 + k * 30}%)`;
     ctx.beginPath();
     ctx.arc(p.x, p.y, sz, 0, TAU);
     ctx.fill();
   }
-  ctx.shadowBlur = 0;
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
 }
@@ -722,14 +719,20 @@ function updateShield(dt) {
 
 function drawShield() {
   ctx.globalCompositeOperation = 'lighter';
-  ctx.shadowBlur = 22;
   ctx.lineWidth = 2;
   for (const blk of shield.blocks) {
     if (!blk.alive) continue;
     const pulse = 0.85 + Math.sin(blk.phase) * 0.15;
     const hue = 310 + Math.sin(blk.phase * 0.5) * 10 + (blk.hitT > 0 ? 40 : 0);
     const r = blk.r * pulse;
-    ctx.shadowColor = `hsl(${hue}, 100%, 70%)`;
+    // glow: cheap enlarged circle in additive mode
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = `hsl(${hue}, 100%, 70%)`;
+    ctx.beginPath();
+    ctx.arc(blk.x, blk.y, r * 2.2, 0, TAU);
+    ctx.fill();
+    // hex
+    ctx.globalAlpha = 1;
     ctx.strokeStyle = `hsl(${hue}, 100%, 80%)`;
     ctx.fillStyle = `hsla(${hue}, 90%, 35%, 0.8)`;
     ctx.beginPath();
@@ -744,7 +747,7 @@ function drawShield() {
     ctx.fill();
     ctx.stroke();
   }
-  ctx.shadowBlur = 0;
+  ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
 }
 
