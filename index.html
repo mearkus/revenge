@@ -490,14 +490,6 @@ function updatePlayer(dt) {
   if (player.y < M) { player.y = M; player.vy = 0; }
   if (player.y > H - M) { player.y = H - M; player.vy = 0; }
 
-  // Facing angle
-  if (sp > 30) {
-    const target = Math.atan2(player.vy, player.vx);
-    let diff = target - player.angle;
-    while (diff > Math.PI) diff -= TAU;
-    while (diff < -Math.PI) diff += TAU;
-    player.angle += diff * Math.min(1, dt * 12);
-  }
 
   // Fire
   player.cooldown -= dt;
