@@ -657,25 +657,67 @@ const shield = {
 
 function buildShield(level) {
   shield.blocks.length = 0;
-  const cols = 4;
-  const rows = 9;
-  const sz = 26;
-  const sp = 30;
-  const offsetX = shield.cx - (cols - 1) * sp / 2 + sp * 0.3;
-  const offsetY = shield.cy - (rows - 1) * sp / 2;
   const hp = 1 + Math.floor(level / 2);
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const wobble = Math.sin(r * 0.7 + c * 0.4) * 4;
-      shield.blocks.push({
-        x: offsetX + c * sp + wobble,
-        y: offsetY + r * sp + (c % 2) * sp / 2 - sp / 4,
-        r: sz / 2,
-        hp, maxHp: hp,
-        alive: true,
-        hitT: 0,
-        phase: rand(0, TAU),
-      });
+  const regenTime = Math.max(3, 12 - level * 0.8);
+  const sp = 30;
+
+  function addBlock(x, y) {
+    shield.blocks.push({
+      x, y, r: 13,
+      hp, maxHp: hp,
+      alive: true, hitT: 0,
+      phase: rand(0, TAU),
+      regenT: -1, regenTime,
+    });
+  }
+
+  const layout = level <= 2 ? 'grid' : level <= 4 ? 'diamond' : level <= 6 ? 'arc' : 'cross';
+
+  if (layout === 'grid') {
+    const cols = 4, rows = 9;
+    const offsetX = shield.cx - (cols - 1) * sp / 2 + sp * 0.3;
+    const offsetY = shield.cy - (rows - 1) * sp / 2;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const wobble = Math.sin(r * 0.7 + c * 0.4) * 4;
+        addBlock(offsetX + c * sp + wobble, offsetY + r * sp + (c % 2) * sp / 2 - sp / 4);
+      }
+    }
+  } else if (layout === 'diamond') {
+    const cols = 5, rows = 11;
+    const offsetX = shield.cx - (cols - 1) * sp / 2;
+    const offsetY = shield.cy - (rows - 1) * sp / 2;
+    const cx = (cols - 1) / 2, cy = (rows - 1) / 2;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (Math.abs(r - cy) / cy + Math.abs(c - cx) / cx <= 1.05) {
+          addBlock(offsetX + c * sp, offsetY + r * sp);
+        }
+      }
+    }
+  } else if (layout === 'arc') {
+    // Three concentric arcs curving away from the player
+    const layers = 3;
+    for (let layer = 0; layer < layers; layer++) {
+      const rows = 14 + layer * 2;
+      const offsetY = shield.cy - (rows - 1) * sp / 2;
+      for (let r = 0; r < rows; r++) {
+        const t = (r / (rows - 1)) * 2 - 1;
+        const curve = t * t * 35;
+        addBlock(shield.cx + layer * sp * 0.9 + curve, offsetY + r * sp);
+      }
+    }
+  } else {
+    // Cross: vertical + horizontal arms with thick center
+    const arm = 6;
+    for (let i = -arm; i <= arm; i++) {
+      addBlock(shield.cx, shield.cy + i * sp);
+      if (i !== 0) addBlock(shield.cx + i * sp * 0.85, shield.cy);
+    }
+    for (let r = -2; r <= 2; r++) {
+      for (let c = -1; c <= 1; c++) {
+        if (r !== 0 || c !== 0) addBlock(shield.cx + c * sp, shield.cy + r * sp);
+      }
     }
   }
 }
@@ -685,6 +727,7 @@ function damageBlock(blk, dmg) {
   blk.hitT = 0.2;
   if (blk.hp <= 0) {
     blk.alive = false;
+    blk.regenT = blk.regenTime;
     game.score += 25;
     player.energy = Math.min(player.energyMax, player.energy + 1);
     emitBurst(blk.x, blk.y, { count: 18, speed: 280, hue: 320, life: 0.8 });
@@ -702,17 +745,25 @@ function damageBlock(blk, dmg) {
 }
 
 function updateShield(dt) {
+  const anyAlive = shield.blocks.some(b => b.alive);
   for (const blk of shield.blocks) {
-    if (!blk.alive) continue;
     blk.phase += dt * 2;
-    if (blk.hitT > 0) blk.hitT -= dt;
-    // Touch-nibble: if player overlaps, chip damage
-    if (player.alive && dist2(player.x, player.y, blk.x, blk.y) < (blk.r + player.radius) * (blk.r + player.radius)) {
-      damageBlock(blk, 1);
-      // nudge player away
-      const a = Math.atan2(player.y - blk.y, player.x - blk.x);
-      player.vx += Math.cos(a) * 120;
-      player.vy += Math.sin(a) * 120;
+    if (blk.alive) {
+      if (blk.hitT > 0) blk.hitT -= dt;
+      if (player.alive && dist2(player.x, player.y, blk.x, blk.y) < (blk.r + player.radius) * (blk.r + player.radius)) {
+        damageBlock(blk, 1);
+        const a = Math.atan2(player.y - blk.y, player.x - blk.x);
+        player.vx += Math.cos(a) * 120;
+        player.vy += Math.sin(a) * 120;
+      }
+    } else if (anyAlive && blk.regenT >= 0) {
+      blk.regenT -= dt;
+      if (blk.regenT <= 0) {
+        blk.alive = true;
+        blk.hp = 1;
+        blk.regenT = -1;
+        emitBurst(blk.x, blk.y, { count: 6, speed: 100, hue: 310, life: 0.4 });
+      }
     }
   }
 }
@@ -772,12 +823,14 @@ function resetDevourer(level) {
   devourer.x = W - 120;
   devourer.baseY = H / 2;
   devourer.y = H / 2;
-  devourer.hp = 3;
-  devourer.maxHp = 3;
+  const hp = 3 + Math.floor((level - 1) / 2);
+  devourer.hp = hp;
+  devourer.maxHp = hp;
   devourer.phase = 0;
   devourer.hitT = 0;
   devourer.swirlTimer = Math.max(1.5, 4 - level * 0.3);
   devourer.beamTimer = Math.max(1.5, 3 - level * 0.2);
+  devourer.burstTimer = level >= 3 ? rand(6, 10) : Infinity;
   devourer.alive = true;
   devourer.rage = 0;
 }
@@ -802,6 +855,13 @@ function updateDevourer(dt) {
     spawnSwirl();
   }
 
+  // Burst attack (level 3+): radial spray of soul beams
+  devourer.burstTimer -= dt;
+  if (devourer.burstTimer <= 0) {
+    devourer.burstTimer = Math.max(5, 12 - game.level * 0.5);
+    spawnBurstAttack();
+  }
+
   // Hit detection vs player (collision with body)
   if (player.alive && player.invuln <= 0) {
     if (dist2(player.x, player.y, devourer.x, devourer.y) < (devourer.r + player.radius) * (devourer.r + player.radius)) {
@@ -815,22 +875,27 @@ function updateDevourer(dt) {
 function drawDevourer() {
   if (!devourer.alive) return;
   const x = devourer.x, y = devourer.y;
+  const rage = devourer.rage;
+  // Phase hue: orange (rage=0) → red (rage=0.5) → purple (rage=1)
+  const baseHue = rage < 0.5 ? 15 - rage * 30 : (rage - 0.5) * 2 * 280;
+  const hueOuter = devourer.hitT > 0 ? 200 : baseHue;
 
   ctx.globalCompositeOperation = 'lighter';
   // outer aura
   const aura = ctx.createRadialGradient(x, y, 0, x, y, devourer.r * 3.2);
-  const hueOuter = devourer.hitT > 0 ? 200 : 10;
   aura.addColorStop(0, `hsla(${hueOuter}, 100%, 60%, 0.6)`);
-  aura.addColorStop(0.5, `hsla(${hueOuter + 20}, 100%, 50%, 0.15)`);
+  aura.addColorStop(0.5, `hsla(${(hueOuter + 20) % 360}, 100%, 50%, 0.15)`);
   aura.addColorStop(1, 'transparent');
   ctx.fillStyle = aura;
   ctx.fillRect(x - devourer.r * 3.2, y - devourer.r * 3.2, devourer.r * 6.4, devourer.r * 6.4);
 
-  // rotating rings
-  for (let i = 0; i < 3; i++) {
+  // rotating rings — extra ring unlocks at high rage
+  const numRings = rage >= 0.67 ? 4 : 3;
+  for (let i = 0; i < numRings; i++) {
     const a = devourer.phase * (i % 2 ? -1 : 1) * (0.6 + i * 0.3);
-    const rr = devourer.r * (1.4 + i * 0.35);
-    ctx.strokeStyle = `hsla(${10 + i * 12}, 100%, ${60 - i * 10}%, ${0.6 - i * 0.15})`;
+    const rr = devourer.r * (1.4 + i * 0.32);
+    const ringHue = (baseHue + i * 18) % 360;
+    ctx.strokeStyle = `hsla(${ringHue}, 100%, ${60 - i * 8}%, ${0.65 - i * 0.12})`;
     ctx.lineWidth = 2;
     ctx.beginPath();
     for (let j = 0; j < 8; j++) {
@@ -845,19 +910,21 @@ function drawDevourer() {
   }
   ctx.globalCompositeOperation = 'source-over';
 
-  // core
+  // core — color shifts with phase
+  const midColor = rage > 0.5 ? '#ff20a0' : '#ff5020';
+  const darkColor = rage > 0.5 ? '#200040' : '#400000';
   const coreG = ctx.createRadialGradient(x, y, 0, x, y, devourer.r);
   coreG.addColorStop(0, '#fff');
-  coreG.addColorStop(0.2, '#ffeacc');
-  coreG.addColorStop(0.6, '#ff5020');
-  coreG.addColorStop(1, '#400000');
+  coreG.addColorStop(0.2, rage > 0.5 ? '#ffccff' : '#ffeacc');
+  coreG.addColorStop(0.6, midColor);
+  coreG.addColorStop(1, darkColor);
   ctx.fillStyle = coreG;
   ctx.beginPath();
   ctx.arc(x, y, devourer.r, 0, TAU);
   ctx.fill();
 
   // iris slit
-  ctx.fillStyle = '#100000';
+  ctx.fillStyle = rage > 0.67 ? '#0a0020' : '#100000';
   ctx.beginPath();
   ctx.ellipse(x, y, devourer.r * 0.5, devourer.r * 0.18, devourer.phase, 0, TAU);
   ctx.fill();
@@ -915,6 +982,23 @@ function spawnSoulBeam() {
     phase: 0,
   });
   pushPopup(devourer.x - 60, devourer.y - 50, 'SOUL BEAM', 0);
+}
+
+function spawnBurstAttack() {
+  const n = 4 + Math.floor(game.level / 2);
+  const speed = 140 + game.level * 12;
+  for (let i = 0; i < n; i++) {
+    const a = i / n * TAU;
+    soulBeams.push({
+      x: devourer.x, y: devourer.y,
+      vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+      life: 7, t: 0,
+      homing: 0.5 + game.level * 0.08,
+      speed, r: 10, phase: 0,
+    });
+  }
+  pushPopup(devourer.x - 60, devourer.y - 50, 'BURST!', 0);
+  screenShake(6);
 }
 
 function updateSoulBeams(dt) {
