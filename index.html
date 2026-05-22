@@ -446,6 +446,8 @@ const player = {
   radius: 16,
   alive: true,
   thrustT: 0,
+  rapidFireT: 0,
+  tripleShotT: 0,
 };
 
 function resetPlayer() {
@@ -456,6 +458,8 @@ function resetPlayer() {
   player.invuln = 2.0;
   player.energy = 0;
   player.alive = true;
+  player.rapidFireT = 0;
+  player.tripleShotT = 0;
 }
 
 function updatePlayer(dt) {
@@ -494,18 +498,25 @@ function updatePlayer(dt) {
 
 
   // Fire
+  if (player.rapidFireT > 0) player.rapidFireT -= dt;
+  if (player.tripleShotT > 0) player.tripleShotT -= dt;
+
   player.cooldown -= dt;
   const firePressed = input.fire.active || readKeyboardFire();
   if (firePressed && player.cooldown <= 0) {
     const a = player.angle;
-    bullets.push({
-      x: player.x + Math.cos(a) * 22,
-      y: player.y + Math.sin(a) * 22,
-      vx: Math.cos(a) * 900 + player.vx * 0.5,
-      vy: Math.sin(a) * 900 + player.vy * 0.5,
-      life: 1.2, t: 0,
-    });
-    player.cooldown = 0.16;
+    const spreads = player.tripleShotT > 0 ? [-0.18, 0, 0.18] : [0];
+    for (const da of spreads) {
+      const ba = a + da;
+      bullets.push({
+        x: player.x + Math.cos(ba) * 22,
+        y: player.y + Math.sin(ba) * 22,
+        vx: Math.cos(ba) * 900 + player.vx * 0.5,
+        vy: Math.sin(ba) * 900 + player.vy * 0.5,
+        life: 1.2, t: 0,
+      });
+    }
+    player.cooldown = player.rapidFireT > 0 ? 0.08 : 0.16;
     emitSpark(player.x + Math.cos(a) * 22, player.y + Math.sin(a) * 22, 180);
   }
 
@@ -603,6 +614,79 @@ function drawPlayer() {
 // Bullets
 // -----------------------------------------------------------------------------
 const bullets = [];
+
+// -----------------------------------------------------------------------------
+// Power-ups
+// -----------------------------------------------------------------------------
+const powerups = [];
+const POWERUP_TYPES = ['rapidFire', 'tripleShot', 'shield', 'energySurge'];
+const POWERUP_HUE   = { rapidFire: 40, tripleShot: 120, shield: 200, energySurge: 280 };
+const POWERUP_LABEL = { rapidFire: 'RAPID FIRE', tripleShot: 'TRIPLE SHOT', shield: 'SHIELD', energySurge: 'ENERGY SURGE' };
+const POWERUP_ICON  = { rapidFire: 'R', tripleShot: 'T', shield: 'S', energySurge: 'E' };
+
+function spawnPowerup(x, y) {
+  const type = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
+  powerups.push({ x, y, vx: -70, vy: rand(-40, 40), type, life: 10, t: 0, phase: rand(0, TAU), r: 13 });
+}
+
+function applyPowerup(type) {
+  const hue = POWERUP_HUE[type];
+  emitBurst(player.x, player.y, { count: 24, speed: 220, hue, life: 0.7 });
+  pushPopup(player.x, player.y - 36, POWERUP_LABEL[type] + '!', 50);
+  if (type === 'rapidFire')    player.rapidFireT  = Math.max(player.rapidFireT,  8);
+  if (type === 'tripleShot')   player.tripleShotT = Math.max(player.tripleShotT, 8);
+  if (type === 'shield')       player.invuln      = Math.max(player.invuln, 5);
+  if (type === 'energySurge') {
+    player.energy = Math.min(player.energyMax, player.energy + 4);
+    if (player.energy >= player.energyMax) pushPopup(120, H / 2 - 60, 'CANNON READY', 60);
+  }
+}
+
+function updatePowerups(dt) {
+  let alive = 0;
+  for (let i = 0; i < powerups.length; i++) {
+    const p = powerups[i];
+    p.t += dt;
+    p.phase += dt * 3;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    if (p.t >= p.life || p.x < -20) continue;
+    if (player.alive && dist2(player.x, player.y, p.x, p.y) < (p.r + player.radius) ** 2) {
+      applyPowerup(p.type);
+      continue;
+    }
+    powerups[alive++] = p;
+  }
+  powerups.length = alive;
+}
+
+function drawPowerups() {
+  for (const p of powerups) {
+    const hue = POWERUP_HUE[p.type];
+    const pulse = 0.85 + Math.sin(p.phase) * 0.15;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.22 * pulse;
+    ctx.fillStyle = `hsl(${hue}, 100%, 65%)`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * 2.8, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = `hsl(${hue}, 90%, 55%)`;
+    ctx.strokeStyle = `hsl(${hue}, 100%, 85%)`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * pulse, 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(POWERUP_ICON[p.type], p.x, p.y);
+  }
+  ctx.textAlign = 'left';
+}
 
 function updateBullets(dt) {
   for (let i = bullets.length - 1; i >= 0; i--) {
@@ -958,6 +1042,7 @@ function hitDevourer() {
   } else {
     game.score += 500;
     pushPopup(devourer.x, devourer.y - 30, '+500', 40);
+    spawnPowerup(devourer.x - 60, devourer.y);
     // Regenerate shield
     buildShield(game.level + 1);
   }
@@ -1611,6 +1696,7 @@ function updateGame(dt) {
   if (game.state === STATE.PLAY) {
     updatePlayer(dt);
     updateBullets(dt);
+    updatePowerups(dt);
     updateShield(dt);
     updateDevourer(dt);
     updateSoulBeams(dt);
@@ -1711,6 +1797,7 @@ function frame(now) {
     drawSwirls();
     drawSoulBeams();
     drawBullets();
+    drawPowerups();
     drawAnnihilator();
     drawPlayer();
     drawParticles();
